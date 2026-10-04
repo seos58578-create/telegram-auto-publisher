@@ -1,4 +1,4 @@
-[2026/10/4 22:06] 5G: import os
+[2026/10/4 22:20] 5G: import os
 import json
 import time
 import html
@@ -30,34 +30,21 @@ def load_data():
 
 def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(
-            data,
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 def clean_text(text):
     if not text:
         return ""
 
-    soup = BeautifulSoup(
-        text,
-        "html.parser"
-    )
-
-    text = soup.get_text(
-        " ",
-        strip=True
-    )
+    soup = BeautifulSoup(text, "html.parser")
+    text = soup.get_text(" ", strip=True)
 
     return " ".join(text.split())
 
 
 def get_image(entry):
 
-    # media_content
     if hasattr(entry, "media_content"):
 
         for media in entry.media_content:
@@ -67,7 +54,6 @@ def get_image(entry):
             if url:
                 return url
 
-    # media_thumbnail
     if hasattr(entry, "media_thumbnail"):
 
         for media in entry.media_thumbnail:
@@ -77,7 +63,6 @@ def get_image(entry):
             if url:
                 return url
 
-    # enclosure
     if hasattr(entry, "enclosures"):
 
         for enclosure in entry.enclosures:
@@ -87,11 +72,7 @@ def get_image(entry):
             if url:
                 return url
 
-    # 从 description 中寻找图片
-    description = entry.get(
-        "description",
-        ""
-    )
+    description = entry.get("description", "")
 
     soup = BeautifulSoup(
         description,
@@ -101,7 +82,6 @@ def get_image(entry):
     img = soup.find("img")
 
     if img:
-
         return img.get("src")
 
     return None
@@ -160,7 +140,6 @@ def build_message(
     summary = clean_text(summary)
 
     if len(summary) > 600:
-
         summary = summary[:600] + "..."
 
     summary = html.escape(summary)
@@ -176,8 +155,7 @@ def build_message(
         f"<b>📰 {title}</b>\n\n"
         f"{summary}\n\n"
         f"📌 来源：{source}\n\n"
-        f'🔗 <a href="{article_url}">'
-        f"阅读原文</a>\n\n"
+        f'<a href="{article_url}">🔗 阅读原文</a>\n\n'
         f"#资讯"
     )
 
@@ -185,31 +163,22 @@ def build_message(
 def process_source(source, data):
 
     name = source["name"]
-
     rss_url = source["rss"]
 
-    print(
-        f"正在检查：{name}"
-    )
+    print(f"正在检查：{name}")
 
-    feed = feedparser.parse(
-        rss_url
-    )
+    feed = feedparser.parse(rss_url)
 
     if not feed.entries:
 
-        print(
-            f"{name} 没有发现文章"
-        )
+        print(f"{name} 没有发现文章")
 
         return False
 
     changed = False
 
-    # 最新文章最多检查10条
     entries = feed.entries[:10]
 
-    # 倒序发布
     for entry in reversed(entries):
 
         title = entry.get(
@@ -223,11 +192,9 @@ def process_source(source, data):
         ).strip()
 
         if not title or not article_url:
-
             continue
 
         if article_url in data["published"]:
-
             continue
 
         summary = entry.get(
@@ -247,9 +214,7 @@ def process_source(source, data):
             article_url
         )
 
-        print(
-[2026/10/4 22:06] 5G: f"发现新文章：{title}"
-        )
+        print(f"发现新文章：{title}")
 
         if image:
 
@@ -266,17 +231,13 @@ def process_source(source, data):
 
         if result.get("ok"):
 
-            print(
-                f"发布成功：{title}"
-            )
-
-            data["published"].append(
+            print(f"发布成功：{title}")
+[2026/10/4 22:20] 5G: data["published"].append(
                 article_url
             )
 
             changed = True
 
-            # 防止发送太快
             time.sleep(2)
 
         else:
@@ -315,7 +276,6 @@ def main():
                 f"处理 {source['name']} 出错：{e}"
             )
 
-    # 最多保存1000条
     data["published"] = (
         data["published"][-1000:]
     )
@@ -324,15 +284,10 @@ def main():
 
         save_data(data)
 
-        print(
-            "去重数据已经保存"
-        )
+        print("去重数据已经保存")
 
-    print(
-        "本次任务完成"
-    )
+    print("本次任务完成")
 
 
 if name == "__main__":
-
     main()
