@@ -161,16 +161,8 @@ def process_source(source, data):
     changed = False
 
     for entry in reversed(feed.entries[:10]):
-
-        title = entry.get(
-            "title",
-            ""
-        ).strip()
-
-        article_url = entry.get(
-            "link",
-            ""
-        ).strip()
+        title = entry.get("title", "").strip()
+        article_url = entry.get("link", "").strip()
 
         if not title or not article_url:
             continue
@@ -180,10 +172,7 @@ def process_source(source, data):
 
         summary = entry.get(
             "summary",
-            entry.get(
-                "description",
-                ""
-            )
+            entry.get("description", "")
         )
 
         image = get_image(entry)
@@ -213,8 +202,8 @@ def process_source(source, data):
             data["published"].append(
                 article_url
             )
-    changed = True
 
+            changed = True
             time.sleep(2)
 
         else:
