@@ -749,7 +749,7 @@ def main():
             "url"
         )
 
-        max_items = int(
+ max_items = int(
             source.get(
                 "max_items",
                 10
@@ -760,19 +760,56 @@ def main():
         print(
             "------------------------------"
         )
-print(
+
+        print(
             f"网站: {name}"
         )
 
-       something()
-
         print(
-            "xxxx"
+            f"URL: {page_url}"
         )
 
         print(
             "------------------------------"
         )
+
+        if not page_url:
+            print(
+                "没有配置 URL"
+            )
+            continue
+
+        images = extract_images(
+            page_url
+        )
+
+        total_found += len(
+            images
+        )
+
+        # 最多发送 max_items 张
+        images = images[:max_items]
+
+        for image_url in images:
+
+            uid = image_id(
+                image_url
+            )
+
+            if uid in published:
+
+                print(
+                    f"跳过重复图片: {image_url}"
+                )
+
+                total_duplicate += 1
+
+                continue
+
+            print("")
+            print(
+                f"准备发送图片: {image_url}"
+            )
 
         if not page_url:
 
