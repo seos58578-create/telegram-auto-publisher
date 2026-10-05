@@ -6,10 +6,11 @@
     "max_items": 10
   },
   {
-  "type": "telegram",
-  "name": "频道1",
-  "channel": "@LHBDD",
-  "today_only": true,
-  "images_only": true,
-  "max_items": 20
-}
+    "type": "telegram",
+    "name": "频道1",
+    "channel": "@LHBDD",
+    "today_only": true,
+    "images_only": true,
+    "max_items": 20
+  }
+]
