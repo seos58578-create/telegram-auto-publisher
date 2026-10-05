@@ -1,12 +1,24 @@
 [
   {
-    "type": "api",
-    "name": "图片API",
+    "type": "website",
+    "name": "普通网站",
     "url": "https://g4y1mp.xn--bck5bqc5bbcb6i4jg8edh4k.xn--q9jyb4c:8443/#/picture/",
+    "max_depth": 5,
+    "today_only": true,
+    "max_items": 50
+  },
+  {
+    "type": "api",
+    "name": "普通图片API",
+    "url": "https://example.com/api/images",
     "method": "GET",
-    "lottery_types": [1, 2, 3, 4],
-    "page_size": 50,
+    "image_field": "imageUrl",
+    "date_field": "created_at",
+    "today_only": true,
+    "page_field": "page",
+    "page_size_field": "pageSize",
+    "page_size": 20,
     "max_pages": 5,
-    "max_items": 1000
+    "max_items": 20
   }
 ]
