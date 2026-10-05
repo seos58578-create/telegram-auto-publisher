@@ -38,37 +38,25 @@ def clean_text(text):
         return ""
 
     soup = BeautifulSoup(text, "html.parser")
-    text = soup.get_text(" ", strip=True)
-
-    return " ".join(text.split())
+    return soup.get_text(" ", strip=True)
 
 
 def get_image(entry):
-
     if hasattr(entry, "media_content"):
-
-        for media in entry.media_content:
-
-            url = media.get("url")
-
+        for item in entry.media_content:
+            url = item.get("url")
             if url:
                 return url
 
     if hasattr(entry, "media_thumbnail"):
-
-        for media in entry.media_thumbnail:
-
-            url = media.get("url")
-
+        for item in entry.media_thumbnail:
+            url = item.get("url")
             if url:
                 return url
 
     if hasattr(entry, "enclosures"):
-
-        for enclosure in entry.enclosures:
-
-            url = enclosure.get("href")
-
+        for item in entry.enclosures:
+            url = item.get("href")
             if url:
                 return url
 
@@ -79,16 +67,15 @@ def get_image(entry):
         "html.parser"
     )
 
-    img = soup.find("img")
+    image = soup.find("img")
 
-    if img:
-        return img.get("src")
+    if image:
+        return image.get("src")
 
     return None
 
 
 def send_message(text):
-
     url = (
         f"https://api.telegram.org/"
         f"bot{BOT_TOKEN}/sendMessage"
@@ -108,7 +95,6 @@ def send_message(text):
 
 
 def send_photo(photo, caption):
-
     url = (
         f"https://api.telegram.org/"
         f"bot{BOT_TOKEN}/sendPhoto"
@@ -134,7 +120,6 @@ def build_message(
     source,
     article_url
 ):
-
     title = html.escape(title)
 
     summary = clean_text(summary)
@@ -143,7 +128,6 @@ def build_message(
         summary = summary[:600] + "..."
 
     summary = html.escape(summary)
-
     source = html.escape(source)
 
     article_url = html.escape(
@@ -155,13 +139,14 @@ def build_message(
         f"<b>📰 {title}</b>\n\n"
         f"{summary}\n\n"
         f"📌 来源：{source}\n\n"
-        f'<a href="{article_url}">🔗 阅读原文</a>\n\n'
+        f'<a href="{article_url}">'
+        f"🔗 阅读原文"
+        f"</a>\n\n"
         f"#资讯"
     )
 
 
 def process_source(source, data):
-
     name = source["name"]
     rss_url = source["rss"]
 
@@ -170,16 +155,12 @@ def process_source(source, data):
     feed = feedparser.parse(rss_url)
 
     if not feed.entries:
-
         print(f"{name} 没有发现文章")
-
         return False
 
     changed = False
 
-    entries = feed.entries[:10]
-
-    for entry in reversed(entries):
+    for entry in reversed(feed.entries[:10]):
 
         title = entry.get(
             "title",
@@ -217,31 +198,26 @@ def process_source(source, data):
         print(f"发现新文章：{title}")
 
         if image:
-
             result = send_photo(
                 image,
                 message
             )
-
         else:
-
             result = send_message(
                 message
             )
 
         if result.get("ok"):
-
             print(f"发布成功：{title}")
-data["published"].append(
+
+            data["published"].append(
                 article_url
             )
-
-            changed = True
+    changed = True
 
             time.sleep(2)
 
         else:
-
             print(
                 "Telegram 发布失败：",
                 result
@@ -251,9 +227,7 @@ data["published"].append(
 
 
 def main():
-
     data = load_data()
-
     sources = load_sources()
 
     changed = False
@@ -261,7 +235,6 @@ def main():
     for source in sources:
 
         try:
-
             result = process_source(
                 source,
                 data
@@ -270,10 +243,10 @@ def main():
             if result:
                 changed = True
 
-        except Exception as e:
-
+        except Exception as error:
             print(
-                f"处理 {source['name']} 出错：{e}"
+                f"处理 {source['name']} 出错："
+                f"{error}"
             )
 
     data["published"] = (
@@ -281,9 +254,7 @@ def main():
     )
 
     if changed:
-
         save_data(data)
-
         print("去重数据已经保存")
 
     print("本次任务完成")
