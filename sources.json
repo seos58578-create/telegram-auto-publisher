@@ -1,17 +1,16 @@
 [
-  {
-    "type": "website",
-    "name": "网站1",
-    "url": "https://wkfs6di.xn--v69av2fncv1kbq6aw7a91af3bopz3q.xn--mk1bu44c/#/",
-     "max_items": 50,
-    "max_depth": 2
-  },
-    {
-    "type": "website",
-    "name": "网站2",
-    "url": "https://bmq7muv.xn--bck5bqc6bcb3hqjg4eh6i.xn--q9jyb4c/#/tuku?seriesId=1&title=%E8%B7%91%E7%8B%97%E7%B3%BB%E5%88%97",
-    "max_items": 10
-  },
+ {
+  "type": "api",
+  "name": "图片API",
+  "url": "https://api.china-rush.com/api/getPictureList",
+  "method": "GET",
+  "image_field": "image",
+  "date_field": "created_at",
+  "page_param": "page",
+  "max_pages": 5,
+  "today_only": true,
+  "max_items": 50
+}
   {
     "type": "telegram",
     "name": "频道1",
