@@ -1,10 +1,12 @@
 import os
 import json
 import hashlib
+from io import BytesIO
 from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from PIL import Image
 
 
 # =========================
@@ -19,6 +21,13 @@ PUBLISHED_FILE = "data/published.json"
 
 TIMEOUT = 30
 
+# 最小图片尺寸
+MIN_WIDTH = 300
+MIN_HEIGHT = 200
+
+# 最大图片大小 10MB
+MAX_IMAGE_SIZE = 10 * 1024 * 1024
+
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -26,6 +35,59 @@ HEADERS = {
         "Chrome/131.0 Safari/537.36"
     )
 }
+
+
+# =========================
+# 排除关键词
+# =========================
+
+EXCLUDE_KEYWORDS = [
+    # Logo
+    "logo",
+    "site-logo",
+    "header-logo",
+    "footer-logo",
+
+    # 图标
+    "icon",
+    "favicon",
+    "sprite",
+
+    # 导航
+    "nav",
+    "navbar",
+    "navigation",
+    "menu",
+    "header",
+    "footer",
+
+    # 轮播
+    "slider",
+    "swiper",
+    "carousel",
+    "slideshow",
+
+    # Banner
+    "banner",
+    "top-banner",
+    "header-banner",
+
+    # 按钮/箭头
+    "button",
+    "btn",
+    "arrow",
+    "prev",
+    "next",
+
+    # 加载图片
+    "loading",
+    "loader",
+    "placeholder",
+
+    # 用户头像
+    "avatar",
+    "profile"
+]
 
 
 # =========================
@@ -44,8 +106,29 @@ if not CHANNEL_ID:
 # =========================
 
 def load_sources():
-    with open(SOURCES_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+
+    try:
+
+        with open(
+            SOURCES_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            data = json.load(f)
+
+        if not isinstance(data, list):
+            raise RuntimeError(
+                "sources.json 必须是 JSON 数组"
+            )
+
+        return data
+
+    except json.JSONDecodeError as e:
+
+        raise RuntimeError(
+            f"sources.json JSON 格式错误: {e}"
+        )
 
 
 # =========================
@@ -53,20 +136,35 @@ def load_sources():
 # =========================
 
 def load_published():
-    os.makedirs("data", exist_ok=True)
 
-    if not os.path.exists(PUBLISHED_FILE):
+    os.makedirs(
+        "data",
+        exist_ok=True
+    )
+
+    if not os.path.exists(
+        PUBLISHED_FILE
+    ):
         return set()
 
     try:
-        with open(PUBLISHED_FILE, "r", encoding="utf-8") as f:
+
+        with open(
+            PUBLISHED_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
             data = json.load(f)
 
         if isinstance(data, list):
             return set(data)
 
     except Exception as e:
-        print(f"读取去重文件失败: {e}")
+
+        print(
+            f"读取去重文件失败: {e}"
+        )
 
     return set()
 
@@ -76,9 +174,18 @@ def load_published():
 # =========================
 
 def save_published(published):
-    os.makedirs("data", exist_ok=True)
 
-    with open(PUBLISHED_FILE, "w", encoding="utf-8") as f:
+    os.makedirs(
+        "data",
+        exist_ok=True
+    )
+
+    with open(
+        PUBLISHED_FILE,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
         json.dump(
             sorted(list(published)),
             f,
@@ -88,25 +195,60 @@ def save_published(published):
 
 
 # =========================
-# 图片唯一 ID
+# URL 唯一 ID
 # =========================
 
 def image_id(url):
-    return hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+    return hashlib.sha256(
+        url.encode("utf-8")
+    ).hexdigest()
 
 
 # =========================
-# 判断是否图片
+# 图片内容唯一 ID
+# =========================
+
+def image_content_id(data):
+
+    return hashlib.sha256(
+        data
+    ).hexdigest()
+
+
+# =========================
+# 判断关键词
+# =========================
+
+def contains_exclude_keyword(text):
+
+    if not text:
+        return False
+
+    text = text.lower()
+
+    for keyword in EXCLUDE_KEYWORDS:
+
+        if keyword in text:
+            return True
+
+    return False
+
+
+# =========================
+# 判断 URL 是否图片
 # =========================
 
 def is_image_url(url):
+
     if not url:
         return False
 
     url_lower = url.lower()
 
-    # 去掉查询参数
-    path = urlparse(url_lower).path
+    path = urlparse(
+        url_lower
+    ).path
 
     extensions = (
         ".jpg",
@@ -118,18 +260,75 @@ def is_image_url(url):
         ".avif"
     )
 
-    return path.endswith(extensions)
+    return path.endswith(
+        extensions
+    )
 
 
 # =========================
-# 获取网页图片
+# 检查图片所在 HTML 区域
+# =========================
+
+def is_in_excluded_area(img):
+
+    parent = img
+# 向上检查 5 层
+    for _ in range(5):
+
+        if not parent:
+            break
+
+        tag_name = getattr(
+            parent,
+            "name",
+            ""
+        )
+
+        if tag_name:
+
+            classes = parent.get(
+                "class",
+                []
+            )
+
+            element_id = parent.get(
+                "id",
+                ""
+            )
+
+            class_text = " ".join(
+                classes
+            )
+
+            area_text = (
+                f"{tag_name} "
+                f"{class_text} "
+                f"{element_id}"
+            )
+
+            if contains_exclude_keyword(
+                area_text
+            ):
+
+                return True
+
+        parent = parent.parent
+
+    return False
+
+
+# =========================
+# 获取图片
 # =========================
 
 def extract_images(page_url):
 
-    print(f"正在访问网站: {page_url}")
+    print(
+        f"正在访问网站: {page_url}"
+    )
 
     try:
+
         response = requests.get(
             page_url,
             headers=HEADERS,
@@ -140,10 +339,16 @@ def extract_images(page_url):
         response.raise_for_status()
 
     except Exception as e:
-        print(f"网站访问失败: {e}")
+
+        print(
+            f"网站访问失败: {e}"
+        )
+
         return []
 
-    print(f"网页状态码: {response.status_code}")
+    print(
+        f"网页状态码: {response.status_code}"
+    )
 
     soup = BeautifulSoup(
         response.text,
@@ -152,13 +357,29 @@ def extract_images(page_url):
 
     images = []
 
-    # -------------------------
-    # 1. <img src="">
-    # -------------------------
+    # =========================
+    # <img>
+    # =========================
 
     for img in soup.find_all("img"):
 
+        # -------------------------
+        # 检查 HTML 区域
+        # -------------------------
+
+        if is_in_excluded_area(img):
+
+            print(
+                "跳过导航/轮播区域图片"
+            )
+
+            continue
+
         candidates = []
+
+        # -------------------------
+        # 常见图片属性
+        # -------------------------
 
         for attr in [
             "src",
@@ -167,16 +388,22 @@ def extract_images(page_url):
             "data-lazy-src",
             "data-url"
         ]:
+
             value = img.get(attr)
 
             if value:
-                candidates.append(value)
+
+                candidates.append(
+                    value
+                )
 
         # -------------------------
         # srcset
         # -------------------------
 
-        srcset = img.get("srcset")
+        srcset = img.get(
+            "srcset"
+        )
 
         if srcset:
 
@@ -185,9 +412,14 @@ def extract_images(page_url):
                 item = item.strip()
 
                 if item:
+
                     candidates.append(
                         item.split(" ")[0]
                     )
+
+        # -------------------------
+        # 处理 URL
+        # -------------------------
 
         for src in candidates:
 
@@ -201,39 +433,45 @@ def extract_images(page_url):
                 src
             )
 
-            if full_url.startswith("http"):
-                images.append(full_url)
+            if not full_url.startswith(
+                "http"
+            ):
+                continue
 
-    # -------------------------
-    # 2. og:image
-    # -------------------------
+            # URL关键词过滤
+            if contains_exclude_keyword(
+                full_url
+            ):
+
+                print(
+                    f"关键词过滤: {full_url}"
+                )
+
+                continue
+
+            # 文件类型过滤
+            if not is_image_url(
+                full_url
+            ):
+
+                continue
+
+            images.append(
+                full_url
+            )
+
+    # =========================
+    # og:image
+    # =========================
 
     for meta in soup.find_all(
         "meta",
         property="og:image"
     ):
 
-        content = meta.get("content")
-
-        if content:
-
-            full_url = urljoin(
-page_url,
-                content
-            )
-
-            images.append(full_url)
-
-    # -------------------------
-    # 3. twitter:image
-    # -------------------------
-
-    for meta in soup.find_all(
-        "meta",
-        attrs={"name": "twitter:image"}
-    ):
-
-        content = meta.get("content")
+        content = meta.get(
+            "content"
+        )
 
         if content:
 
@@ -242,11 +480,58 @@ page_url,
                 content
             )
 
-            images.append(full_url)
+            # 不采集明显的 Logo / Banner
+            if contains_exclude_keyword(
+                full_url
+            ):
+                continue
 
-    # -------------------------
-    # 去重
-    # -------------------------
+            if is_image_url(
+                full_url
+            ):
+
+                images.append(
+                    full_url
+                )
+
+    # =========================
+    # twitter:image
+    # =========================
+
+    for meta in soup.find_all(
+        "meta",
+        attrs={
+            "name": "twitter:image"
+}
+    ):
+
+        content = meta.get(
+            "content"
+        )
+
+        if content:
+
+            full_url = urljoin(
+                page_url,
+                content
+            )
+
+            if contains_exclude_keyword(
+                full_url
+            ):
+                continue
+
+            if is_image_url(
+                full_url
+            ):
+
+                images.append(
+                    full_url
+                )
+
+    # =========================
+    # URL 去重
+    # =========================
 
     unique = []
 
@@ -259,9 +544,13 @@ page_url,
 
         seen.add(url)
 
-        unique.append(url)
+        unique.append(
+            url
+        )
 
-    print(f"网页发现图片: {len(unique)}")
+    print(
+        f"过滤后图片数量: {len(unique)}"
+    )
 
     return unique
 
@@ -289,7 +578,9 @@ def download_image(url):
             ""
         ).lower()
 
-        if not content_type.startswith("image/"):
+        if not content_type.startswith(
+            "image/"
+        ):
 
             print(
                 f"跳过非图片: {url}"
@@ -299,11 +590,50 @@ def download_image(url):
 
         data = response.content
 
-        # Telegram 图片建议不要太大
-        if len(data) > 10 * 1024 * 1024:
+        # -------------------------
+        # 图片大小限制
+        # -------------------------
+
+        if len(data) > MAX_IMAGE_SIZE:
 
             print(
                 f"跳过过大图片: {len(data)} bytes"
+            )
+
+            return None
+
+        # -------------------------
+        # 检查实际图片尺寸
+        # -------------------------
+
+        try:
+
+            image = Image.open(
+                BytesIO(data)
+            )
+
+            width, height = image.size
+
+            print(
+                f"图片尺寸: {width}x{height}"
+            )
+
+            if (
+                width < MIN_WIDTH
+                or
+                height < MIN_HEIGHT
+            ):
+
+                print(
+                    "跳过小尺寸图片"
+                )
+
+                return None
+
+        except Exception as e:
+
+            print(
+                f"无法读取图片尺寸: {e}"
             )
 
             return None
@@ -322,10 +652,10 @@ def download_image(url):
 
 
 # =========================
-# 发送 Telegram 图片
+# Telegram
 # =========================
 
-def send_photo(image_data, source_url):
+def send_photo(image_data):
 
     telegram_url = (
         f"https://api.telegram.org/bot"
@@ -340,9 +670,9 @@ def send_photo(image_data, source_url):
         )
     }
 
+    # 不再显示来源
     data = {
-        "chat_id": CHANNEL_ID,
-        
+        "chat_id": CHANNEL_ID
     }
 
     try:
@@ -358,7 +688,9 @@ def send_photo(image_data, source_url):
 
         if result.get("ok"):
 
-            print("Telegram 发送成功")
+            print(
+                "Telegram 发送成功"
+            )
 
             return True
 
@@ -385,9 +717,17 @@ def send_photo(image_data, source_url):
 
 def main():
 
-    print("==============================")
-    print("Telegram 网站图片采集器")
-    print("==============================")
+    print(
+        "=============================="
+    )
+
+    print(
+        "Telegram 网站图片采集器"
+    )
+
+    print(
+        "=============================="
+    )
 
     sources = load_sources()
 
@@ -405,7 +745,9 @@ def main():
             "未知网站"
         )
 
-        page_url = source.get("url")
+        page_url = source.get(
+            "url"
+        )
 
         max_items = int(
             source.get(
@@ -415,33 +757,56 @@ def main():
         )
 
         print("")
-        print("------------------------------")
-        print(f"网站: {name}")
-        print(f"URL: {page_url}")
-        print("------------------------------")
+        print(
+            "------------------------------"
+        )
+print(
+            f"网站: {name}"
+        )
+
+        print(
+            f"URL: {page_url}"
+        )
+
+        print(
+            "------------------------------"
+        )
 
         if not page_url:
-            print("没有配置 URL")
+
+            print(
+                "没有配置 URL"
+            )
+
             continue
 
         images = extract_images(
             page_url
         )
 
-        total_found += len(images)
+        total_found += len(
+            images
+        )
 
-        # 最多发送 max_items 张
-        images = images[:max_items]
+        # -------------------------
+        # 限制数量
+        # -------------------------
+
+        images = images[
+            :max_items
+        ]
 
         for image_url in images:
 
-            uid = image_id(image_url)
+            url_id = image_id(
+                image_url
+            )
 
             # -------------------------
-            # 去重
+            # URL 去重
             # -------------------------
 
-            if uid in published:
+            if url_id in published:
 
                 print(
                     f"跳过重复图片: {image_url}"
@@ -453,9 +818,10 @@ def main():
 
             print("")
             print(
-                f"准备发送图片: {image_url}"
+                f"准备处理图片: {image_url}"
             )
-# -------------------------
+
+            # -------------------------
             # 下载
             # -------------------------
 
@@ -470,17 +836,46 @@ def main():
                 continue
 
             # -------------------------
+            # 内容去重
+            # -------------------------
+
+            content_id = image_content_id(
+                image_data
+            )
+
+            if content_id in published:
+
+                print(
+                    "图片内容已经发布过，跳过"
+                )
+
+                published.add(
+                    url_id
+                )
+
+                total_duplicate += 1
+
+                continue
+
+            # -------------------------
             # Telegram
             # -------------------------
 
             success = send_photo(
-                image_data,
-                page_url
+                image_data
             )
 
             if success:
 
-                published.add(uid)
+                # 同时保存 URL ID
+                # 和图片内容 ID
+                published.add(
+                    url_id
+                )
+
+                published.add(
+                    content_id
+                )
 
                 total_sent += 1
 
@@ -488,19 +883,42 @@ def main():
 
                 total_failed += 1
 
+    # -------------------------
     # 保存去重数据
+    # -------------------------
+
     save_published(
         published
     )
 
     print("")
-    print("==============================")
-    print("本次任务完成")
-    print(f"发现图片: {total_found}")
-    print(f"成功发送: {total_sent}")
-    print(f"重复跳过: {total_duplicate}")
-    print(f"失败数量: {total_failed}")
-    print("==============================")
+    print(
+        "=============================="
+    )
+
+    print(
+        "本次任务完成"
+    )
+
+    print(
+        f"发现图片: {total_found}"
+    )
+
+    print(
+        f"成功发送: {total_sent}"
+    )
+
+    print(
+        f"重复跳过: {total_duplicate}"
+    )
+
+    print(
+        f"失败数量: {total_failed}"
+    )
+
+    print(
+        "=============================="
+    )
 
 
 if __name__ == "__main__":
