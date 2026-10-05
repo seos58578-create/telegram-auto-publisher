@@ -1,17 +1,13 @@
 import os
 import json
 import hashlib
-from io import BytesIO
-from urllib.parse import urljoin, urlparse
+from datetime import datetime, timezone
 
 import requests
 from bs4 import BeautifulSoup
 from PIL import Image
+from io import BytesIO
 
-
-# =========================
-# 基础配置
-# =========================
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
@@ -19,718 +15,326 @@ CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
 SOURCES_FILE = "sources.json"
 PUBLISHED_FILE = "data/published.json"
 
-TIMEOUT = 30
-
-# 最小图片尺寸
 MIN_WIDTH = 300
 MIN_HEIGHT = 200
-
-# 最大图片大小 10MB
 MAX_IMAGE_SIZE = 10 * 1024 * 1024
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0 Safari/537.36"
-    )
-}
+TIMEOUT = 20
 
-
-# =========================
-# 排除关键词
-# =========================
 
 EXCLUDE_KEYWORDS = [
-    # Logo
     "logo",
-    "site-logo",
-    "header-logo",
-    "footer-logo",
-
-    # 图标
     "icon",
     "favicon",
-    "sprite",
-
-    # 导航
     "nav",
-    "navbar",
-    "navigation",
     "menu",
     "header",
     "footer",
-
-    # 轮播
-    "slider",
-    "swiper",
-    "carousel",
-    "slideshow",
-
-    # Banner
-    "banner",
-    "top-banner",
-    "header-banner",
-
-    # 按钮/箭头
-    "button",
-    "btn",
     "arrow",
-    "prev",
-    "next",
-
-    # 加载图片
+    "button",
     "loading",
-    "loader",
-    "placeholder",
-
-    # 用户头像
     "avatar",
-    "profile"
+    "share",
+    "sprite",
 ]
 
 
-# =========================
-# 检查配置
-# =========================
-
-if not BOT_TOKEN:
-    raise RuntimeError("缺少 TELEGRAM_BOT_TOKEN")
-
-if not CHANNEL_ID:
-    raise RuntimeError("缺少 TELEGRAM_CHANNEL_ID")
-
-
-# =========================
-# 读取网站配置
-# =========================
-
 def load_sources():
+    if not os.path.exists(SOURCES_FILE):
+        print("找不到 sources.json")
+        return []
 
     try:
-
-        with open(
-            SOURCES_FILE,
-            "r",
-            encoding="utf-8"
-        ) as f:
-
+        with open(SOURCES_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         if not isinstance(data, list):
-            raise RuntimeError(
-                "sources.json 必须是 JSON 数组"
-            )
+            print("sources.json 必须是数组")
+            return []
 
         return data
 
     except json.JSONDecodeError as e:
+        print("sources.json JSON 格式错误：")
+        print(e)
+        return []
 
-        raise RuntimeError(
-            f"sources.json JSON 格式错误: {e}"
-        )
-
-
-# =========================
-# 读取去重数据
-# =========================
 
 def load_published():
+    os.makedirs("data", exist_ok=True)
 
-    os.makedirs(
-        "data",
-        exist_ok=True
-    )
-
-    if not os.path.exists(
-        PUBLISHED_FILE
-    ):
+    if not os.path.exists(PUBLISHED_FILE):
         return set()
 
     try:
-
-        with open(
-            PUBLISHED_FILE,
-            "r",
-            encoding="utf-8"
-        ) as f:
-
+        with open(PUBLISHED_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        if isinstance(data, list):
-            return set(data)
+        return set(data)
 
-    except Exception as e:
+    except Exception:
+        return set()
 
-        print(
-            f"读取去重文件失败: {e}"
-        )
-
-    return set()
-
-
-# =========================
-# 保存去重数据
-# =========================
 
 def save_published(published):
+    os.makedirs("data", exist_ok=True)
 
-    os.makedirs(
-        "data",
-        exist_ok=True
-    )
-
-    with open(
-        PUBLISHED_FILE,
-        "w",
-        encoding="utf-8"
-    ) as f:
-
+    with open(PUBLISHED_FILE, "w", encoding="utf-8") as f:
         json.dump(
-            sorted(list(published)),
+            list(published),
             f,
             ensure_ascii=False,
             indent=2
         )
 
 
-# =========================
-# URL 唯一 ID
-# =========================
-
 def image_id(url):
-
     return hashlib.sha256(
         url.encode("utf-8")
     ).hexdigest()
 
 
-# =========================
-# 图片内容唯一 ID
-# =========================
-
 def image_content_id(data):
-
-    return hashlib.sha256(
-        data
-    ).hexdigest()
+    return hashlib.sha256(data).hexdigest()
 
 
-# =========================
-# 判断关键词
-# =========================
-
-def contains_exclude_keyword(text):
-
-    if not text:
-        return False
-
-    text = text.lower()
-
-    for keyword in EXCLUDE_KEYWORDS:
-
-        if keyword in text:
-            return True
-
-    return False
-
-
-# =========================
-# 判断 URL 是否图片
-# =========================
-
-def is_image_url(url):
-
-    if not url:
-        return False
-
-    url_lower = url.lower()
-
-    path = urlparse(
-        url_lower
-    ).path
-
-    extensions = (
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".webp",
-        ".gif",
-        ".bmp",
-        ".avif"
-    )
-
-    return path.endswith(
-        extensions
-    )
-
-
-# =========================
-# 检查图片所在 HTML 区域
-# =========================
-
-def is_in_excluded_area(img):
-
-    parent = img
-# 向上检查 5 层
-    for _ in range(5):
-
-        if not parent:
-            break
-
-        tag_name = getattr(
-            parent,
-            "name",
-            ""
-        )
-
-        if tag_name:
-
-            classes = parent.get(
-                "class",
-                []
-            )
-
-            element_id = parent.get(
-                "id",
-                ""
-            )
-
-            class_text = " ".join(
-                classes
-            )
-
-            area_text = (
-                f"{tag_name} "
-                f"{class_text} "
-                f"{element_id}"
-            )
-
-            if contains_exclude_keyword(
-                area_text
-            ):
-
-                return True
-
-        parent = parent.parent
-
-    return False
-
-
-# =========================
-# 获取图片
-# =========================
-
-def extract_images(page_url):
-
-    print(
-        f"正在访问网站: {page_url}"
-    )
-
+def is_valid_image(data):
     try:
+        image = Image.open(BytesIO(data))
 
-        response = requests.get(
-            page_url,
-            headers=HEADERS,
-            timeout=TIMEOUT,
-            verify=False
-        )
+        width, height = image.size
 
-        response.raise_for_status()
+        print(f"图片尺寸: {width} x {height}")
 
-    except Exception as e:
+        if width < MIN_WIDTH:
+            return False
 
-        print(
-            f"网站访问失败: {e}"
-        )
+        if height < MIN_HEIGHT:
+            return False
 
-        return []
+        return True
 
-    print(
-        f"网页状态码: {response.status_code}"
-    )
+    except Exception:
+        return False
 
-    soup = BeautifulSoup(
-        response.text,
-        "html.parser"
-    )
-
-    images = []
-
-    # =========================
-    # <img>
-    # =========================
-
-    for img in soup.find_all("img"):
-
-        # -------------------------
-        # 检查 HTML 区域
-        # -------------------------
-
-        if is_in_excluded_area(img):
-
-            print(
-                "跳过导航/轮播区域图片"
-            )
-
-            continue
-
-        candidates = []
-
-        # -------------------------
-        # 常见图片属性
-        # -------------------------
-
-        for attr in [
-            "src",
-            "data-src",
-            "data-original",
-            "data-lazy-src",
-            "data-url"
-        ]:
-
-            value = img.get(attr)
-
-            if value:
-
-                candidates.append(
-                    value
-                )
-
-        # -------------------------
-        # srcset
-        # -------------------------
-
-        srcset = img.get(
-            "srcset"
-        )
-
-        if srcset:
-
-            for item in srcset.split(","):
-
-                item = item.strip()
-
-                if item:
-
-                    candidates.append(
-                        item.split(" ")[0]
-                    )
-
-        # -------------------------
-        # 处理 URL
-        # -------------------------
-
-        for src in candidates:
-
-            if not src:
-                continue
-
-            src = src.strip()
-
-            full_url = urljoin(
-                page_url,
-                src
-            )
-
-            if not full_url.startswith(
-                "http"
-            ):
-                continue
-
-            # URL关键词过滤
-            if contains_exclude_keyword(
-                full_url
-            ):
-
-                print(
-                    f"关键词过滤: {full_url}"
-                )
-
-                continue
-
-            # 文件类型过滤
-            if not is_image_url(
-                full_url
-            ):
-
-                continue
-
-            images.append(
-                full_url
-            )
-
-    # =========================
-    # og:image
-    # =========================
-
-    for meta in soup.find_all(
-        "meta",
-        property="og:image"
-    ):
-
-        content = meta.get(
-            "content"
-        )
-
-        if content:
-
-            full_url = urljoin(
-                page_url,
-                content
-            )
-
-            # 不采集明显的 Logo / Banner
-            if contains_exclude_keyword(
-                full_url
-            ):
-                continue
-
-            if is_image_url(
-                full_url
-            ):
-
-                images.append(
-                    full_url
-                )
-
-    # =========================
-    # twitter:image
-    # =========================
-
-    for meta in soup.find_all(
-        "meta",
-        attrs={
-            "name": "twitter:image"
-}
-    ):
-
-        content = meta.get(
-            "content"
-        )
-
-        if content:
-
-            full_url = urljoin(
-                page_url,
-                content
-            )
-
-            if contains_exclude_keyword(
-                full_url
-            ):
-                continue
-
-            if is_image_url(
-                full_url
-            ):
-
-                images.append(
-                    full_url
-                )
-
-    # =========================
-    # URL 去重
-    # =========================
-
-    unique = []
-
-    seen = set()
-
-    for url in images:
-
-        if url in seen:
-            continue
-
-        seen.add(url)
-
-        unique.append(
-            url
-        )
-
-    print(
-        f"过滤后图片数量: {len(unique)}"
-    )
-
-    return unique
-
-
-# =========================
-# 下载图片
-# =========================
 
 def download_image(url):
-
     try:
+        print(f"下载图片: {url}")
 
         response = requests.get(
             url,
-            headers=HEADERS,
             timeout=TIMEOUT,
-            stream=True,
-            verify=False
+            headers={
+                "User-Agent": "Mozilla/5.0"
+            }
         )
 
         response.raise_for_status()
+
+        data = response.content
+
+        if len(data) > MAX_IMAGE_SIZE:
+            print("图片超过 10MB，跳过")
+            return None
 
         content_type = response.headers.get(
             "Content-Type",
             ""
         ).lower()
 
-        if not content_type.startswith(
-            "image/"
-        ):
-
-            print(
-                f"跳过非图片: {url}"
-            )
-
+        if not content_type.startswith("image/"):
+            print(f"不是图片: {content_type}")
             return None
 
-        data = response.content
-
-        # -------------------------
-        # 图片大小限制
-        # -------------------------
-
-        if len(data) > MAX_IMAGE_SIZE:
-
-            print(
-                f"跳过过大图片: {len(data)} bytes"
-            )
-
-            return None
-
-        # -------------------------
-        # 检查实际图片尺寸
-        # -------------------------
-
-        try:
-
-            image = Image.open(
-                BytesIO(data)
-            )
-
-            width, height = image.size
-
-            print(
-                f"图片尺寸: {width}x{height}"
-            )
-
-            if (
-                width < MIN_WIDTH
-                or
-                height < MIN_HEIGHT
-            ):
-
-                print(
-                    "跳过小尺寸图片"
-                )
-
-                return None
-
-        except Exception as e:
-
-            print(
-                f"无法读取图片尺寸: {e}"
-            )
-
+        if not is_valid_image(data):
+            print("图片尺寸不符合要求")
             return None
 
         return data
 
     except Exception as e:
-
-        print(
-            f"下载图片失败: {url}"
-        )
-
+        print(f"下载图片失败: {url}")
         print(e)
-
         return None
 
 
-# =========================
-# Telegram
-# =========================
+def send_photo(data):
+    if not BOT_TOKEN:
+        print("缺少 TELEGRAM_BOT_TOKEN")
+        return False
 
-def send_photo(image_data):
+    if not CHANNEL_ID:
+        print("缺少 TELEGRAM_CHANNEL_ID")
+        return False
 
-    telegram_url = (
+    url = (
         f"https://api.telegram.org/bot"
         f"{BOT_TOKEN}/sendPhoto"
     )
 
-    files = {
-        "photo": (
-            "image.jpg",
-            image_data,
-            "image/jpeg"
-        )
-    }
-
-    # 不再显示来源
-    data = {
-        "chat_id": CHANNEL_ID
-    }
-
     try:
+        files = {
+            "photo": (
+                "image.jpg",
+                data,
+                "image/jpeg"
+            )
+        }
+
+        payload = {
+            "chat_id": CHANNEL_ID
+        }
 
         response = requests.post(
-            telegram_url,
-            data=data,
+            url,
+            data=payload,
             files=files,
-            timeout=60
+            timeout=30
         )
 
-        result = response.json()
-
-        if result.get("ok"):
-
-            print(
-                "Telegram 发送成功"
-            )
-
+        if response.ok:
+            print("发送 Telegram 成功")
             return True
 
-        print(
-            "Telegram 发送失败:",
-            result
-        )
+        print("Telegram 发送失败")
+        print(response.text)
 
         return False
 
     except Exception as e:
-
-        print(
-            "Telegram 请求失败:",
-            e
-        )
-
+        print("Telegram 请求失败")
+        print(e)
         return False
 
 
-# =========================
-# 主程序
-# =========================
+def extract_website_images(page_url):
+    print(f"正在访问网站: {page_url}")
+
+    try:
+        response = requests.get(
+            page_url,
+            timeout=TIMEOUT,
+            headers={
+"User-Agent": "Mozilla/5.0"
+            }
+        )
+
+        response.raise_for_status()
+
+        soup = BeautifulSoup(
+            response.text,
+            "html.parser"
+        )
+
+        result = []
+
+        for img in soup.find_all("img"):
+
+            src = (
+                img.get("src")
+                or img.get("data-src")
+                or img.get("data-original")
+            )
+
+            if not src:
+                continue
+
+            src_lower = src.lower()
+
+            if any(
+                keyword in src_lower
+                for keyword in EXCLUDE_KEYWORDS
+            ):
+                continue
+
+            if src.startswith("//"):
+                src = "https:" + src
+
+            elif src.startswith("/"):
+                from urllib.parse import urljoin
+                src = urljoin(page_url, src)
+
+            elif not src.startswith("http"):
+                from urllib.parse import urljoin
+                src = urljoin(page_url, src)
+
+            if src not in result:
+                result.append(src)
+
+        return result
+
+    except Exception as e:
+        print("网站采集失败:")
+        print(e)
+        return []
+
+
+def extract_api_images(source):
+    api_url = source.get("url")
+    image_field = source.get(
+        "image_field",
+        "imageUrl"
+    )
+
+    print(f"正在请求 API: {api_url}")
+
+    try:
+        response = requests.get(
+            api_url,
+            timeout=TIMEOUT,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Accept": "application/json"
+            }
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+    except Exception as e:
+        print("API 请求失败:")
+        print(e)
+        return []
+
+    result = []
+
+    def walk(obj):
+
+        if isinstance(obj, dict):
+
+            value = obj.get(image_field)
+
+            if isinstance(value, str):
+                if value.startswith("http"):
+                    result.append(value)
+
+            for v in obj.values():
+                walk(v)
+
+        elif isinstance(obj, list):
+
+            for item in obj:
+                walk(item)
+
+    walk(data)
+
+    # 去重
+    result = list(dict.fromkeys(result))
+
+    print(f"API 找到图片: {len(result)}")
+
+    return result
+
 
 def main():
 
-    print(
-        "=============================="
-    )
-
-    print(
-        "Telegram 网站图片采集器"
-    )
-
-    print(
-        "=============================="
-    )
+    print("==============================")
+    print("Telegram 图片采集器")
+    print("==============================")
 
     sources = load_sources()
-
     published = load_published()
 
     total_found = 0
@@ -740,13 +344,14 @@ def main():
 
     for source in sources:
 
-        name = source.get(
-            "name",
-            "未知网站"
+        source_type = source.get(
+            "type",
+            "website"
         )
 
-        page_url = source.get(
-            "url"
+        name = source.get(
+            "name",
+            "未知来源"
         )
 
         max_items = int(
@@ -757,49 +362,32 @@ def main():
         )
 
         print("")
+        print("------------------------------")
+        print(f"来源: {name}")
+        print(f"类型: {source_type}")
+        print("------------------------------")
 
-        print(
-            "------------------------------"
-        )
+        if source_type == "api":
 
-        print(
-            f"网站: {name}"
-        )
-
-        print(
-            f"URL: {page_url}"
-        )
-
-        print(
-            "------------------------------"
-        )
-
-        if not page_url:
-
-            print(
-                "没有配置 URL"
+            images = extract_api_images(
+                source
             )
 
-            continue
+        else:
 
-        # =========================
-        # 获取图片
-        # =========================
+            page_url = source.get("url")
 
-        images = extract_images(
-            page_url
-        )
+            if not page_url:
+                print("没有配置 URL")
+                continue
 
-        total_found += len(
-            images
-        )
+            images = extract_website_images(
+                page_url
+            )
 
-        # 最多处理 max_items 张
+        total_found += len(images)
+
         images = images[:max_items]
-
-        # =========================
-        # 逐张处理
-        # =========================
 
         for image_url in images:
 
@@ -807,29 +395,13 @@ def main():
                 image_url
             )
 
-            # -------------------------
-            # URL 去重
-            # -------------------------
-
             if url_id in published:
 
-                print(
-                    f"跳过重复图片: {image_url}"
-                )
+                print("URL 已发布，跳过")
 
                 total_duplicate += 1
 
                 continue
-
-            print("")
-
-            print(
-                f"准备处理图片: {image_url}"
-            )
-
-            # -------------------------
-            # 下载图片
-            # -------------------------
 
             image_data = download_image(
                 image_url
@@ -841,48 +413,24 @@ def main():
 
                 continue
 
-            # -------------------------
-            # 图片内容去重
-            # -------------------------
-
             content_id = image_content_id(
                 image_data
             )
 
             if content_id in published:
 
-                print(
-                    "图片内容已经发布过，跳过"
-                )
+                print("图片内容已发布，跳过")
 
-                # 保存 URL，避免下次再次检查
-                published.add(
-                    url_id
-                )
-
-                total_duplicate += 1
+                published.add(url_id)
+total_duplicate += 1
 
                 continue
 
-            # -------------------------
-            # 发送 Telegram
-            # -------------------------
+            if send_photo(image_data):
 
-            success = send_photo(
-                image_data
-            )
+                published.add(url_id)
 
-            if success:
-
-                # 保存 URL ID
-                published.add(
-                    url_id
-                )
-
-                # 保存图片内容 ID
-                published.add(
-                    content_id
-                )
+                published.add(content_id)
 
                 total_sent += 1
 
@@ -890,43 +438,16 @@ def main():
 
                 total_failed += 1
 
-    # =========================
-    # 保存去重数据
-    # =========================
-
-    save_published(
-        published
-    )
+    save_published(published)
 
     print("")
-
-    print(
-        "=============================="
-    )
-
-    print(
-        "本次任务完成"
-    )
-
-    print(
-        f"发现图片: {total_found}"
-    )
-
-    print(
-        f"成功发送: {total_sent}"
-    )
-
-    print(
-        f"重复跳过: {total_duplicate}"
-    )
-
-    print(
-        f"失败数量: {total_failed}"
-    )
-
-    print(
-        "=============================="
-    )
+    print("==============================")
+    print("本次任务完成")
+    print(f"发现图片: {total_found}")
+    print(f"成功发送: {total_sent}")
+    print(f"重复跳过: {total_duplicate}")
+    print(f"失败数量: {total_failed}")
+    print("==============================")
 
 
 if __name__ == "__main__":
