@@ -249,5 +249,5 @@ def main():
     print("本次任务完成")
 
 
-if name == "__main__":
+if __name == "__main__":
     main()
