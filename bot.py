@@ -749,7 +749,7 @@ def main():
             "url"
         )
 
- max_items = int(
+        max_items = int(
             source.get(
                 "max_items",
                 10
@@ -757,6 +757,7 @@ def main():
         )
 
         print("")
+
         print(
             "------------------------------"
         )
@@ -774,10 +775,16 @@ def main():
         )
 
         if not page_url:
+
             print(
                 "没有配置 URL"
             )
+
             continue
+
+        # =========================
+        # 获取图片
+        # =========================
 
         images = extract_images(
             page_url
@@ -787,53 +794,12 @@ def main():
             images
         )
 
-        # 最多发送 max_items 张
+        # 最多处理 max_items 张
         images = images[:max_items]
 
-        for image_url in images:
-
-            uid = image_id(
-                image_url
-            )
-
-            if uid in published:
-
-                print(
-                    f"跳过重复图片: {image_url}"
-                )
-
-                total_duplicate += 1
-
-                continue
-
-            print("")
-            print(
-                f"准备发送图片: {image_url}"
-            )
-
-        if not page_url:
-
-            print(
-                "没有配置 URL"
-            )
-
-            continue
-
-        images = extract_images(
-            page_url
-        )
-
-        total_found += len(
-            images
-        )
-
-        # -------------------------
-        # 限制数量
-        # -------------------------
-
-        images = images[
-            :max_items
-        ]
+        # =========================
+        # 逐张处理
+        # =========================
 
         for image_url in images:
 
@@ -856,12 +822,13 @@ def main():
                 continue
 
             print("")
+
             print(
                 f"准备处理图片: {image_url}"
             )
 
             # -------------------------
-            # 下载
+            # 下载图片
             # -------------------------
 
             image_data = download_image(
@@ -875,7 +842,7 @@ def main():
                 continue
 
             # -------------------------
-            # 内容去重
+            # 图片内容去重
             # -------------------------
 
             content_id = image_content_id(
@@ -888,6 +855,7 @@ def main():
                     "图片内容已经发布过，跳过"
                 )
 
+                # 保存 URL，避免下次再次检查
                 published.add(
                     url_id
                 )
@@ -897,7 +865,7 @@ def main():
                 continue
 
             # -------------------------
-            # Telegram
+            # 发送 Telegram
             # -------------------------
 
             success = send_photo(
@@ -906,12 +874,12 @@ def main():
 
             if success:
 
-                # 同时保存 URL ID
-                # 和图片内容 ID
+                # 保存 URL ID
                 published.add(
                     url_id
                 )
 
+                # 保存图片内容 ID
                 published.add(
                     content_id
                 )
@@ -922,15 +890,16 @@ def main():
 
                 total_failed += 1
 
-    # -------------------------
+    # =========================
     # 保存去重数据
-    # -------------------------
+    # =========================
 
     save_published(
         published
     )
 
     print("")
+
     print(
         "=============================="
     )
