@@ -342,7 +342,7 @@ def send_photo(image_data, source_url):
 
     data = {
         "chat_id": CHANNEL_ID,
-        "caption": f"来源：{source_url}"
+        
     }
 
     try:
