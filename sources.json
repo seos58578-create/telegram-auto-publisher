@@ -2,7 +2,7 @@
   {
     "type": "api",
     "name": "图片API",
-    "url": "https://api.china-rush.com/api/getPictureType",
+    "url": "https://api.china-rush.com/api/getPictureList",
     "method": "GET",
     "lottery_types": [1, 2, 3, 4],
     "page_size": 50,
