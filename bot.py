@@ -232,7 +232,7 @@ def process_source(source, data):
         if result.get("ok"):
 
             print(f"发布成功：{title}")
-[2026/10/4 22:20] 5G: data["published"].append(
+data["published"].append(
                 article_url
             )
 
