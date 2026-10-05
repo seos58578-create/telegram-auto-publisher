@@ -1,22 +1,12 @@
 [
- {
-  "type": "api",
-  "name": "图片API",
-  "url": "https://api.china-rush.com/api/getPictureList",
-  "method": "GET",
-  "image_field": "image",
-  "date_field": "created_at",
-  "page_param": "page",
-  "max_pages": 5,
-  "today_only": true,
-  "max_items": 50
-}
   {
-    "type": "telegram",
-    "name": "频道1",
-    "channel": "@LHBDD",
+    "type": "api",
+    "name": "图片API",
+    "url": "https://api.china-rush.com/api/getPictureList",
+    "method": "GET",
+    "image_field": "image",
+    "date_field": "created_at",
     "today_only": true,
-    "images_only": true,
     "max_items": 20
   }
 ]
