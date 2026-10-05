@@ -2,11 +2,11 @@
   {
     "type": "api",
     "name": "图片API",
-    "url": "https://api.china-rush.com/api/getPictureList",
+    "url": "https://api.china-rush.com/api/getPictureType",
     "method": "GET",
-    "image_field": "image",
-    "date_field": "created_at",
-    "today_only": true,
-    "max_items": 20
+    "lottery_types": [1, 2, 3, 4],
+    "page_size": 50,
+    "max_pages": 5,
+    "max_items": 100
   }
 ]
