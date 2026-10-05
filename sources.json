@@ -1,8 +1,15 @@
 [
   {
-    "name": "测试网站",
-    "url": "https://aapljki.xn--q9ja5dc1htxzc.xn--q9jyb4c/#/picture/",
-    "rss": "",
+    "type": "website",
+    "name": "网站1",
+    "url": "https://example.com/",
     "max_items": 10
-  }
-]
+  },
+  {
+  "type": "telegram",
+  "name": "频道1",
+  "channel": "@LHBDD",
+  "today_only": true,
+  "images_only": true,
+  "max_items": 20
+}
