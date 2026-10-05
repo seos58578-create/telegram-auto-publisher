@@ -2,7 +2,13 @@
   {
     "type": "website",
     "name": "网站1",
-    "url": "https://10-5.xn--7dcaalxbca0f0aecy1c9h1abchbd7u.xn--gecrj9c:8443/gsb/",
+    "url": "https://wkfs6di.xn--v69av2fncv1kbq6aw7a91af3bopz3q.xn--mk1bu44c/#/",
+    "max_items": 10
+  },
+    {
+    "type": "website",
+    "name": "网站2",
+    "url": "https://bmq7muv.xn--bck5bqc6bcb3hqjg4eh6i.xn--q9jyb4c/#/tuku?seriesId=1&title=%E8%B7%91%E7%8B%97%E7%B3%BB%E5%88%97",
     "max_items": 10
   },
   {
