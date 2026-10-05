@@ -54,5 +54,5 @@ def main():
     save_published(published)
 
 
-if name == "__main__":
+if __name__ == "__main__":
     main()
