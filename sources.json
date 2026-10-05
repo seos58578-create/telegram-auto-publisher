@@ -1,8 +1,8 @@
-SOURCES = [
-    {
-        "name": "网站A",
-        "url": "https://www.123604.com/",
-        "rss": "https://www.123604.com/",
-        "max_items": 10,
-    },
+[
+  {
+    "name": "测试网站",
+    "url": "https://www.123604.com/",
+    "rss": "",
+    "max_items": 10
+  }
 ]
