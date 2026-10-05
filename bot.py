@@ -1,252 +1,506 @@
 import os
 import json
-import time
-import html
-import requests
-import feedparser
+import hashlib
+from urllib.parse import urljoin, urlparse
 
+import requests
 from bs4 import BeautifulSoup
 
 
-BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHANNEL_ID = os.environ["CHANNEL_ID"]
+# =========================
+# 基础配置
+# =========================
+
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
 
 SOURCES_FILE = "sources.json"
-DATA_FILE = "data.json"
+PUBLISHED_FILE = "data/published.json"
 
+TIMEOUT = 30
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0 Safari/537.36"
+    )
+}
+
+
+# =========================
+# 检查配置
+# =========================
+
+if not BOT_TOKEN:
+    raise RuntimeError("缺少 TELEGRAM_BOT_TOKEN")
+
+if not CHANNEL_ID:
+    raise RuntimeError("缺少 TELEGRAM_CHANNEL_ID")
+
+
+# =========================
+# 读取网站配置
+# =========================
 
 def load_sources():
     with open(SOURCES_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        return {"published": []}
+# =========================
+# 读取去重数据
+# =========================
 
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+def load_published():
+    os.makedirs("data", exist_ok=True)
+
+    if not os.path.exists(PUBLISHED_FILE):
+        return set()
+
+    try:
+        with open(PUBLISHED_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if isinstance(data, list):
+            return set(data)
+
+    except Exception as e:
+        print(f"读取去重文件失败: {e}")
+
+    return set()
 
 
-def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+# =========================
+# 保存去重数据
+# =========================
+
+def save_published(published):
+    os.makedirs("data", exist_ok=True)
+
+    with open(PUBLISHED_FILE, "w", encoding="utf-8") as f:
+        json.dump(
+            sorted(list(published)),
+            f,
+            ensure_ascii=False,
+            indent=2
+        )
 
 
-def clean_text(text):
-    if not text:
-        return ""
+# =========================
+# 图片唯一 ID
+# =========================
 
-    soup = BeautifulSoup(text, "html.parser")
-    return soup.get_text(" ", strip=True)
+def image_id(url):
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()
 
 
-def get_image(entry):
-    if hasattr(entry, "media_content"):
-        for item in entry.media_content:
-            url = item.get("url")
-            if url:
-                return url
+# =========================
+# 判断是否图片
+# =========================
 
-    if hasattr(entry, "media_thumbnail"):
-        for item in entry.media_thumbnail:
-            url = item.get("url")
-            if url:
-                return url
+def is_image_url(url):
+    if not url:
+        return False
 
-    if hasattr(entry, "enclosures"):
-        for item in entry.enclosures:
-            url = item.get("href")
-            if url:
-                return url
+    url_lower = url.lower()
 
-    description = entry.get("description", "")
+    # 去掉查询参数
+    path = urlparse(url_lower).path
+
+    extensions = (
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+        ".gif",
+        ".bmp",
+        ".avif"
+    )
+
+    return path.endswith(extensions)
+
+
+# =========================
+# 获取网页图片
+# =========================
+
+def extract_images(page_url):
+
+    print(f"正在访问网站: {page_url}")
+
+    try:
+        response = requests.get(
+            page_url,
+            headers=HEADERS,
+            timeout=TIMEOUT,
+            verify=False
+        )
+
+        response.raise_for_status()
+
+    except Exception as e:
+        print(f"网站访问失败: {e}")
+        return []
+
+    print(f"网页状态码: {response.status_code}")
 
     soup = BeautifulSoup(
-        description,
+        response.text,
         "html.parser"
     )
 
-    image = soup.find("img")
+    images = []
 
-    if image:
-        return image.get("src")
+    # -------------------------
+    # 1. <img src="">
+    # -------------------------
 
-    return None
+    for img in soup.find_all("img"):
 
+        candidates = []
 
-def send_message(text):
-    url = (
-        f"https://api.telegram.org/"
-        f"bot{BOT_TOKEN}/sendMessage"
-    )
+        for attr in [
+            "src",
+            "data-src",
+            "data-original",
+            "data-lazy-src",
+            "data-url"
+        ]:
+            value = img.get(attr)
 
-    response = requests.post(
-        url,
-        data={
-            "chat_id": CHANNEL_ID,
-            "text": text,
-            "parse_mode": "HTML"
-        },
-        timeout=30
-    )
+            if value:
+                candidates.append(value)
 
-    return response.json()
+        # -------------------------
+        # srcset
+        # -------------------------
 
+        srcset = img.get("srcset")
 
-def send_photo(photo, caption):
-    url = (
-        f"https://api.telegram.org/"
-        f"bot{BOT_TOKEN}/sendPhoto"
-    )
+        if srcset:
 
-    response = requests.post(
-        url,
-        data={
-            "chat_id": CHANNEL_ID,
-            "photo": photo,
-            "caption": caption,
-            "parse_mode": "HTML"
-        },
-        timeout=30
-    )
+            for item in srcset.split(","):
 
-    return response.json()
+                item = item.strip()
 
+                if item:
+                    candidates.append(
+                        item.split(" ")[0]
+                    )
 
-def build_message(
-    title,
-    summary,
-    source,
-    article_url
-):
-    title = html.escape(title)
+        for src in candidates:
 
-    summary = clean_text(summary)
+            if not src:
+                continue
 
-    if len(summary) > 600:
-        summary = summary[:600] + "..."
+            src = src.strip()
 
-    summary = html.escape(summary)
-    source = html.escape(source)
+            full_url = urljoin(
+                page_url,
+                src
+            )
 
-    article_url = html.escape(
-        article_url,
-        quote=True
-    )
+            if full_url.startswith("http"):
+                images.append(full_url)
 
-    return (
-        f"<b>📰 {title}</b>\n\n"
-        f"{summary}\n\n"
-        f"📌 来源：{source}\n\n"
-        f'<a href="{article_url}">'
-        f"🔗 阅读原文"
-        f"</a>\n\n"
-        f"#资讯"
-    )
+    # -------------------------
+    # 2. og:image
+    # -------------------------
 
+    for meta in soup.find_all(
+        "meta",
+        property="og:image"
+    ):
 
-def process_source(source, data):
-    name = source["name"]
-    rss_url = source["rss"]
+        content = meta.get("content")
 
-    print(f"正在检查：{name}")
+        if content:
 
-    feed = feedparser.parse(rss_url)
+            full_url = urljoin(
+page_url,
+                content
+            )
 
-    if not feed.entries:
-        print(f"{name} 没有发现文章")
-        return False
+            images.append(full_url)
 
-    changed = False
+    # -------------------------
+    # 3. twitter:image
+    # -------------------------
 
-    for entry in reversed(feed.entries[:10]):
-        title = entry.get("title", "").strip()
-        article_url = entry.get("link", "").strip()
+    for meta in soup.find_all(
+        "meta",
+        attrs={"name": "twitter:image"}
+    ):
 
-        if not title or not article_url:
+        content = meta.get("content")
+
+        if content:
+
+            full_url = urljoin(
+                page_url,
+                content
+            )
+
+            images.append(full_url)
+
+    # -------------------------
+    # 去重
+    # -------------------------
+
+    unique = []
+
+    seen = set()
+
+    for url in images:
+
+        if url in seen:
             continue
 
-        if article_url in data["published"]:
-            continue
+        seen.add(url)
 
-        summary = entry.get(
-            "summary",
-            entry.get("description", "")
+        unique.append(url)
+
+    print(f"网页发现图片: {len(unique)}")
+
+    return unique
+
+
+# =========================
+# 下载图片
+# =========================
+
+def download_image(url):
+
+    try:
+
+        response = requests.get(
+            url,
+            headers=HEADERS,
+            timeout=TIMEOUT,
+            stream=True,
+            verify=False
         )
 
-        image = get_image(entry)
+        response.raise_for_status()
 
-        message = build_message(
-            title,
-            summary,
-            name,
-            article_url
+        content_type = response.headers.get(
+            "Content-Type",
+            ""
+        ).lower()
+
+        if not content_type.startswith("image/"):
+
+            print(
+                f"跳过非图片: {url}"
+            )
+
+            return None
+
+        data = response.content
+
+        # Telegram 图片建议不要太大
+        if len(data) > 10 * 1024 * 1024:
+
+            print(
+                f"跳过过大图片: {len(data)} bytes"
+            )
+
+            return None
+
+        return data
+
+    except Exception as e:
+
+        print(
+            f"下载图片失败: {url}"
         )
 
-        print(f"发现新文章：{title}")
+        print(e)
 
-        if image:
-            result = send_photo(
-                image,
-                message
-            )
-        else:
-            result = send_message(
-                message
-            )
+        return None
+
+
+# =========================
+# 发送 Telegram 图片
+# =========================
+
+def send_photo(image_data, source_url):
+
+    telegram_url = (
+        f"https://api.telegram.org/bot"
+        f"{BOT_TOKEN}/sendPhoto"
+    )
+
+    files = {
+        "photo": (
+            "image.jpg",
+            image_data,
+            "image/jpeg"
+        )
+    }
+
+    data = {
+        "chat_id": CHANNEL_ID,
+        "caption": f"来源：{source_url}"
+    }
+
+    try:
+
+        response = requests.post(
+            telegram_url,
+            data=data,
+            files=files,
+            timeout=60
+        )
+
+        result = response.json()
 
         if result.get("ok"):
-            print(f"发布成功：{title}")
 
-            data["published"].append(
-                article_url
-            )
+            print("Telegram 发送成功")
 
-            changed = True
-            time.sleep(2)
+            return True
 
-        else:
-            print(
-                "Telegram 发布失败：",
-                result
-            )
+        print(
+            "Telegram 发送失败:",
+            result
+        )
 
-    return changed
+        return False
 
+    except Exception as e:
+
+        print(
+            "Telegram 请求失败:",
+            e
+        )
+
+        return False
+
+
+# =========================
+# 主程序
+# =========================
 
 def main():
-    data = load_data()
+
+    print("==============================")
+    print("Telegram 网站图片采集器")
+    print("==============================")
+
     sources = load_sources()
 
-    changed = False
+    published = load_published()
+
+    total_found = 0
+    total_sent = 0
+    total_duplicate = 0
+    total_failed = 0
 
     for source in sources:
 
-        try:
-            result = process_source(
-                source,
-                data
+        name = source.get(
+            "name",
+            "未知网站"
+        )
+
+        page_url = source.get("url")
+
+        max_items = int(
+            source.get(
+                "max_items",
+                10
             )
+        )
 
-            if result:
-                changed = True
+        print("")
+        print("------------------------------")
+        print(f"网站: {name}")
+        print(f"URL: {page_url}")
+        print("------------------------------")
 
-        except Exception as error:
+        if not page_url:
+            print("没有配置 URL")
+            continue
+
+        images = extract_images(
+            page_url
+        )
+
+        total_found += len(images)
+
+        # 最多发送 max_items 张
+        images = images[:max_items]
+
+        for image_url in images:
+
+            uid = image_id(image_url)
+
+            # -------------------------
+            # 去重
+            # -------------------------
+
+            if uid in published:
+
+                print(
+                    f"跳过重复图片: {image_url}"
+                )
+
+                total_duplicate += 1
+
+                continue
+
+            print("")
             print(
-                f"处理 {source['name']} 出错："
-                f"{error}"
+                f"准备发送图片: {image_url}"
+            )
+[2026/10/5 11:48] 5G: # -------------------------
+            # 下载
+            # -------------------------
+
+            image_data = download_image(
+                image_url
             )
 
-    data["published"] = (
-        data["published"][-1000:]
+            if not image_data:
+
+                total_failed += 1
+
+                continue
+
+            # -------------------------
+            # Telegram
+            # -------------------------
+
+            success = send_photo(
+                image_data,
+                page_url
+            )
+
+            if success:
+
+                published.add(uid)
+
+                total_sent += 1
+
+            else:
+
+                total_failed += 1
+
+    # 保存去重数据
+    save_published(
+        published
     )
 
-    if changed:
-        save_data(data)
-        print("去重数据已经保存")
-
+    print("")
+    print("==============================")
     print("本次任务完成")
+    print(f"发现图片: {total_found}")
+    print(f"成功发送: {total_sent}")
+    print(f"重复跳过: {total_duplicate}")
+    print(f"失败数量: {total_failed}")
+    print("==============================")
 
 
 if __name__ == "__main__":
